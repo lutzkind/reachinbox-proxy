@@ -1,0 +1,17 @@
+{
+  "name": "reachinbox-proxy",
+  "version": "1.0.0",
+  "description": "Transparent proxy for ReachInbox API with auto-auth",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "dependencies": {
+    "express": "^4.19.2",
+    "http-proxy-middleware": "^3.0.3",
+    "node-fetch": "^2.7.0",
+    "playwright": "^1.48.0",
+    "dotenv": "^16.4.5"
+  }
+}
