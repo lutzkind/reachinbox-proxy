@@ -46,12 +46,23 @@ app.all('/api/v1/*', async (req, res) => {
     console.log(`[proxy] ${req.method} ${targetUrl}`)
 
     const fetch = require('node-fetch')
-    const upstream = await fetch(targetUrl, {
-      method: req.method,
-      headers: forwardHeaders,
-      body,
-      redirect: 'follow',
-    })
+    const controller = new AbortController()
+    const timeout = setTimeout(() => controller.abort(), 30000)
+
+    let upstream
+    try {
+      upstream = await fetch(targetUrl, {
+        method: req.method,
+        headers: forwardHeaders,
+        body,
+        redirect: 'follow',
+        signal: controller.signal,
+      })
+    } finally {
+      clearTimeout(timeout)
+    }
+
+    console.log(`[proxy] ${req.method} ${targetUrl} -> ${upstream.status}`)
 
     // If 401, try token refresh once
     if (upstream.status === 401) {
