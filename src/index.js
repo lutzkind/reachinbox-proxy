@@ -73,7 +73,7 @@ app.all('/api/v1/*', async (req, res) => {
       const retry = await fetch(targetUrl, { method: req.method, headers: forwardHeaders, body, redirect: 'follow' })
       res.status(retry.status)
       retry.headers.forEach((val, key) => {
-        if (!['transfer-encoding', 'connection'].includes(key.toLowerCase())) res.set(key, val)
+        if (!['transfer-encoding', 'connection', 'content-encoding'].includes(key.toLowerCase())) res.set(key, val)
       })
       const retryBuf = await retry.buffer()
       return res.send(retryBuf)
@@ -82,7 +82,7 @@ app.all('/api/v1/*', async (req, res) => {
     // Stream response back
     res.status(upstream.status)
     upstream.headers.forEach((val, key) => {
-      if (!['transfer-encoding', 'connection'].includes(key.toLowerCase())) res.set(key, val)
+      if (!['transfer-encoding', 'connection', 'content-encoding'].includes(key.toLowerCase())) res.set(key, val)
     })
     const buf = await upstream.buffer()
     res.send(buf)
