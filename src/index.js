@@ -24,6 +24,7 @@ app.get('/health', (req, res) => res.json({ status: 'ok', service: 'reachinbox-p
 app.all('/api/v1/*', async (req, res) => {
   try {
     const token = await getToken()
+    const cookieHeader = require('./auth').getCookieHeader()
 
     // Build target URL
     const normalizedPath = normalizeReachInboxPath(req.path)
@@ -42,6 +43,12 @@ app.all('/api/v1/*', async (req, res) => {
     forwardHeaders['cookie'] = existingCookie
       ? `${existingCookie}; ${authCookie}`
       : authCookie
+    if (cookieHeader) {
+      forwardHeaders['cookie'] = existingCookie
+        ? `${existingCookie}; ${cookieHeader}`
+        : cookieHeader
+    }
+    forwardHeaders['authorization'] = `Bearer ${token}`
 
     // Determine body
     let body = undefined
