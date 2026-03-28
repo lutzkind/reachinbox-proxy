@@ -4,7 +4,7 @@ A self-hosted transparent HTTP proxy that gives you full programmatic access to 
 
 ## How It Works
 
-The proxy forwards all requests to `https://app.reachinbox.ai/api/v1/` and automatically injects your session token as a cookie. When the token expires, it re-authenticates using your email/password and retries. All request/response bodies are passed through untouched.
+The proxy forwards requests to `https://app.reachinbox.ai/api/v1/`, automatically injects your session token as a cookie, and normalizes a small set of legacy campaign routes so both the documented and currently working endpoint shapes keep working. When the token expires, it re-authenticates using your email/password and retries.
 
 ## Deployment
 
@@ -50,6 +50,8 @@ Returns proxy status.
 ---
 
 ### Campaigns
+
+Compatibility note: the proxy accepts both `/api/v1/campaign/*` and `/api/v1/campaigns/*` routes. For example, `/api/v1/campaigns/all` is normalized to `/api/v1/campaign/list`.
 
 #### `GET /api/v1/campaign/list`
 List all campaigns.
