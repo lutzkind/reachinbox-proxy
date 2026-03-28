@@ -4,6 +4,7 @@ const REACHINBOX_URL = 'https://app.reachinbox.ai'
 
 let cachedToken = process.env.REACHINBOX_TOKEN || null
 let tokenExpiry = process.env.REACHINBOX_TOKEN_EXPIRY ? parseInt(process.env.REACHINBOX_TOKEN_EXPIRY) : null
+let cachedCookieHeader = process.env.REACHINBOX_COOKIE || null
 
 function isTokenValid() {
   if (!cachedToken) return false
@@ -27,10 +28,13 @@ async function refreshTokenViaLogin() {
     throw new Error(`Login failed: ${res.status} ${body}`)
   }
 
-  // Extract auth_token from Set-Cookie header
+  // Extract auth_token and preserve the full cookie jar from the login response
   const setCookie = res.headers.raw()['set-cookie'] || []
   let token = null
+  const cookies = []
   for (const cookie of setCookie) {
+    const cookiePair = cookie.split(';', 1)[0]
+    if (cookiePair) cookies.push(cookiePair)
     const match = cookie.match(/auth_token=([^;]+)/)
     if (match) { token = match[1]; break }
   }
@@ -53,6 +57,7 @@ async function refreshTokenViaLogin() {
   }
 
   cachedToken = token
+  cachedCookieHeader = cookies.length > 0 ? cookies.join('; ') : `auth_token=${token}`
   return token
 }
 
@@ -61,4 +66,10 @@ async function getToken() {
   return refreshTokenViaLogin()
 }
 
-module.exports = { getToken }
+function getCookieHeader() {
+  if (cachedCookieHeader) return cachedCookieHeader
+  if (cachedToken) return `auth_token=${cachedToken}`
+  return null
+}
+
+module.exports = { getToken, getCookieHeader, refreshTokenViaLogin }
