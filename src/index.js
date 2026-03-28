@@ -6,6 +6,14 @@ const app = express()
 const PORT = process.env.PORT || 3000
 const REACHINBOX_BASE = 'https://app.reachinbox.ai'
 
+function normalizeReachInboxPath(pathname) {
+  if (pathname === '/api/v1/campaigns/all') return '/api/v1/campaign/list'
+  if (pathname.startsWith('/api/v1/campaigns/')) {
+    return pathname.replace('/api/v1/campaigns/', '/api/v1/campaign/')
+  }
+  return pathname
+}
+
 // Parse raw body for proxying (preserve exact payload)
 app.use(express.raw({ type: '*/*', limit: '50mb' }))
 
@@ -18,7 +26,8 @@ app.all('/api/v1/*', async (req, res) => {
     const token = await getToken()
 
     // Build target URL
-    const targetUrl = `${REACHINBOX_BASE}${req.path}${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`
+    const normalizedPath = normalizeReachInboxPath(req.path)
+    const targetUrl = `${REACHINBOX_BASE}${normalizedPath}${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`
 
     // Forward headers (strip host/connection)
     const forwardHeaders = {}
