@@ -5,6 +5,103 @@ const { getToken } = require('./auth')
 const app = express()
 const PORT = process.env.PORT || 3000
 const REACHINBOX_BASE = 'https://app.reachinbox.ai'
+const CHALLENGE_RE = /Just a moment|Enable JavaScript and cookies to continue|cf-mitigated|cloudflare/i
+
+function normalizeReachInboxPath(pathname) {
+  if (pathname === '/api/v1/campaigns/all') return '/api/v1/campaign/list'
+  if (pathname.startsWith('/api/v1/campaigns/')) {
+    return pathname.replace('/api/v1/campaigns/', '/api/v1/campaign/')
+  }
+  return pathname
+}
+
+function serializeResponseHeaders(headers) {
+  const result = {}
+  headers.forEach((val, key) => {
+    if (!['transfer-encoding', 'connection', 'content-encoding'].includes(key.toLowerCase())) {
+      result[key] = val
+    }
+  })
+  return result
+}
+
+function sanitizeForwardHeaders(headers) {
+  const result = {}
+  const skipHeaders = new Set(['host', 'connection', 'transfer-encoding', 'content-length', 'authorization'])
+  for (const [key, val] of Object.entries(headers)) {
+    if (!skipHeaders.has(key.toLowerCase())) result[key] = val
+  }
+  return result
+}
+
+function sanitizeBrowserHeaders(headers) {
+  const result = {}
+  const skipHeaders = new Set(['host', 'connection', 'transfer-encoding', 'content-length', 'authorization', 'cookie'])
+  for (const [key, val] of Object.entries(headers)) {
+    if (!skipHeaders.has(key.toLowerCase())) result[key] = val
+  }
+  return result
+}
+
+async function fetchViaBrowser(targetUrl, method, headers, bodyBuffer) {
+  let chromium
+  try {
+    ;({ chromium } = require('playwright'))
+  } catch (err) {
+    throw new Error(`Playwright is unavailable for Cloudflare fallback: ${err.message}`)
+  }
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-dev-shm-usage'],
+  })
+
+  try {
+    const context = await browser.newContext({
+      userAgent:
+        headers['user-agent'] ||
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/125.0.0.0 Safari/537.36',
+      extraHTTPHeaders: {
+        accept: headers.accept || 'application/json',
+        'accept-language': headers['accept-language'] || 'en-US,en;q=0.9',
+      },
+    })
+
+    const page = await context.newPage()
+    await page.goto(REACHINBOX_BASE, { waitUntil: 'domcontentloaded', timeout: 60000 })
+    await page.waitForTimeout(5000)
+
+    const result = await page.evaluate(async ({ targetUrl, method, headers, body }) => {
+      const response = await fetch(targetUrl, {
+        method,
+        headers,
+        body,
+        credentials: 'include',
+      })
+      const text = await response.text()
+      const responseHeaders = {}
+      response.headers.forEach((val, key) => {
+        responseHeaders[key] = val
+      })
+      return {
+        status: response.status,
+        statusText: response.statusText,
+        headers: responseHeaders,
+        text,
+      }
+    }, {
+      targetUrl,
+      method,
+      headers,
+      body: bodyBuffer ? bodyBuffer.toString('utf8') : undefined,
+    })
+
+    await context.close()
+    return result
+  } finally {
+    await browser.close()
+  }
+}
 
 function normalizeReachInboxPath(pathname) {
   if (pathname === '/api/v1/campaigns/all') return '/api/v1/campaign/list'
@@ -30,12 +127,8 @@ app.all('/api/v1/*', async (req, res) => {
     const normalizedPath = normalizeReachInboxPath(req.path)
     const targetUrl = `${REACHINBOX_BASE}${normalizedPath}${req.url.includes('?') ? '?' + req.url.split('?')[1] : ''}`
 
-    // Forward headers (strip host/connection)
-    const forwardHeaders = {}
-    const skipHeaders = ['host', 'connection', 'transfer-encoding', 'content-length', 'authorization']
-    for (const [key, val] of Object.entries(req.headers)) {
-      if (!skipHeaders.includes(key.toLowerCase())) forwardHeaders[key] = val
-    }
+    // Forward headers (strip hop-by-hop headers)
+    const forwardHeaders = sanitizeForwardHeaders(req.headers)
 
     // Inject auth cookie
     const existingCookie = forwardHeaders['cookie'] || ''
@@ -78,6 +171,7 @@ app.all('/api/v1/*', async (req, res) => {
       clearTimeout(timeout)
     }
 
+    const upstreamText = await upstream.text()
     console.log(`[proxy] ${req.method} ${targetUrl} -> ${upstream.status}`)
 
     // If 401, try token refresh once
@@ -95,13 +189,25 @@ app.all('/api/v1/*', async (req, res) => {
       return res.send(retryBuf)
     }
 
+    // Cloudflare challenge fallback: open the site in a browser context and replay the request
+    if (upstream.status === 403 && CHALLENGE_RE.test(upstreamText)) {
+      console.log('[proxy] Got Cloudflare challenge, retrying through Playwright...')
+      const browserResult = await fetchViaBrowser(
+        targetUrl,
+        req.method,
+        sanitizeBrowserHeaders(forwardHeaders),
+        body
+      )
+
+      res.status(browserResult.status)
+      Object.entries(browserResult.headers || {}).forEach(([key, val]) => res.set(key, val))
+      return res.send(browserResult.text)
+    }
+
     // Stream response back
     res.status(upstream.status)
-    upstream.headers.forEach((val, key) => {
-      if (!['transfer-encoding', 'connection', 'content-encoding'].includes(key.toLowerCase())) res.set(key, val)
-    })
-    const buf = await upstream.buffer()
-    res.send(buf)
+    Object.entries(serializeResponseHeaders(upstream.headers)).forEach(([key, val]) => res.set(key, val))
+    res.send(Buffer.from(upstreamText))
 
   } catch (err) {
     console.error('[proxy] Error:', err.message)
