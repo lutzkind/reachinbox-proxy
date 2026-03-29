@@ -32,10 +32,11 @@ app.all('/api/v1/*', async (req, res) => {
 
     // Forward headers (strip host/connection)
     const forwardHeaders = {}
-    const skipHeaders = ['host', 'connection', 'transfer-encoding', 'content-length', 'authorization']
+    const skipHeaders = ['host', 'connection', 'transfer-encoding', 'content-length', 'authorization', 'user-agent']
     for (const [key, val] of Object.entries(req.headers)) {
       if (!skipHeaders.includes(key.toLowerCase())) forwardHeaders[key] = val
     }
+    forwardHeaders['user-agent'] = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36'
 
     // Inject auth cookie
     const existingCookie = forwardHeaders['cookie'] || ''
