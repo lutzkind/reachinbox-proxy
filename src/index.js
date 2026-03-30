@@ -1,6 +1,7 @@
 require('dotenv').config()
 const express = require('express')
 const { getToken } = require('./auth')
+const { getUpstreamProxyAgent } = require('./proxy')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -74,6 +75,7 @@ app.all('/api/v1/*', async (req, res) => {
         body,
         redirect: 'follow',
         signal: controller.signal,
+        agent: getUpstreamProxyAgent(),
       })
     } finally {
       clearTimeout(timeout)
@@ -87,7 +89,13 @@ app.all('/api/v1/*', async (req, res) => {
       const { refreshTokenViaLogin } = require('./auth')
       const newToken = await refreshTokenViaLogin()
       forwardHeaders['cookie'] = `auth_token=${newToken}`
-      const retry = await fetch(targetUrl, { method: req.method, headers: forwardHeaders, body, redirect: 'follow' })
+      const retry = await fetch(targetUrl, {
+        method: req.method,
+        headers: forwardHeaders,
+        body,
+        redirect: 'follow',
+        agent: getUpstreamProxyAgent(),
+      })
       res.status(retry.status)
       retry.headers.forEach((val, key) => {
         if (!['transfer-encoding', 'connection', 'content-encoding'].includes(key.toLowerCase())) res.set(key, val)

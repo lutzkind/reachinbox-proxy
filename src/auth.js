@@ -1,4 +1,5 @@
 const fetch = require('node-fetch')
+const { getUpstreamProxyAgent } = require('./proxy')
 
 const REACHINBOX_URL = 'https://app.reachinbox.ai'
 
@@ -21,6 +22,7 @@ async function refreshTokenViaLogin() {
       email: process.env.REACHINBOX_EMAIL,
       password: process.env.REACHINBOX_PASSWORD,
     }),
+    agent: getUpstreamProxyAgent(),
   })
 
   if (!res.ok) {

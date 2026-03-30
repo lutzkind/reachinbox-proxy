@@ -26,6 +26,7 @@ docker run -p 3000:3000 \
 | `REACHINBOX_PASSWORD` | Yes | Your ReachInbox login password |
 | `REACHINBOX_TOKEN` | No | Pre-captured JWT (skips login on startup) |
 | `REACHINBOX_TOKEN_EXPIRY` | No | JWT expiry as Unix timestamp |
+| `REACHINBOX_UPSTREAM_PROXY` | No | Optional upstream proxy for outbound ReachInbox requests |
 | `PORT` | No | HTTP port (default: `3000`) |
 
 ---
