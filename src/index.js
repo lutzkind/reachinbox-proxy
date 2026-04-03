@@ -25,7 +25,6 @@ app.get('/health', (req, res) => res.json({ status: 'ok', service: 'reachinbox-p
 // ── Blocklist endpoints (mirrors official api.reachinbox.ai shape) ────────────
 
 // GET /api/v1/blocklist/:table? — list blocklist entries
-// :table = emails | domains | keywords | repliesKeywords (omit for all)
 app.get('/api/v1/blocklist/:table?', (req, res) => {
   const data = blocklist.getAll()
   const { table } = req.params
@@ -46,8 +45,7 @@ app.get('/api/v1/blocklist/:table?', (req, res) => {
   res.json({ status: 200, data })
 })
 
-// POST /api/v1/blocklist/add — add entries (mirrors official API exactly)
-// Body: { emails?, domains?, keywords?, repliesKeywords? }
+// POST /api/v1/blocklist/add — add entries
 app.post('/api/v1/blocklist/add', (req, res) => {
   let body = {}
   try { body = JSON.parse(req.body.toString()) } catch (_) {}
@@ -60,7 +58,6 @@ app.post('/api/v1/blocklist/add', (req, res) => {
 })
 
 // DELETE /api/v1/blocklist/:table — remove entries by value
-// Body: { ids: ["email@example.com", ...] }
 app.delete('/api/v1/blocklist/:table', (req, res) => {
   let body = {}
   try { body = JSON.parse(req.body.toString()) } catch (_) {}
@@ -69,6 +66,34 @@ app.delete('/api/v1/blocklist/:table', (req, res) => {
   if (!ids.length) return res.status(400).json({ status: 400, message: 'Provide ids array' })
   const removed = blocklist.deleteEntries(table, ids)
   res.json({ status: 200, message: `Removed ${removed} entries from ${table}` })
+})
+
+// ── ReachInbox webhook receiver ───────────────────────────────────────────────
+
+// POST /webhook/reachinbox — receives LEAD_NOT_INTERESTED and EMAIL_BOUNCED events
+// and auto-adds the lead email to the blocklist
+app.post('/webhook/reachinbox', (req, res) => {
+  let body = {}
+  try { body = JSON.parse(req.body.toString()) } catch (_) {}
+
+  const event = body.event || body.type || ''
+  const lead = body.lead || body.data?.lead || body.data || {}
+  const email = lead.email || body.email || ''
+
+  console.log(`[webhook] Received event: ${event}, email: ${email}`)
+
+  if (!email) {
+    return res.status(200).json({ status: 200, message: 'No email in payload, ignored' })
+  }
+
+  const autoBlockEvents = ['LEAD_NOT_INTERESTED', 'EMAIL_BOUNCED']
+  if (autoBlockEvents.includes(event.toUpperCase())) {
+    const added = blocklist.addEntries({ emails: [email] })
+    console.log(`[webhook] Auto-blocklisted ${email} (event: ${event}, added: ${added})`)
+    return res.json({ status: 200, message: `Blocklisted ${email}`, added })
+  }
+
+  res.json({ status: 200, message: `Event ${event} received, no action taken` })
 })
 
 // ── Generic proxy ─────────────────────────────────────────────────────────────
