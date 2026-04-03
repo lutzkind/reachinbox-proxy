@@ -73,27 +73,38 @@ app.delete('/api/v1/blocklist/:table', (req, res) => {
 // POST /webhook/reachinbox — receives LEAD_NOT_INTERESTED and EMAIL_BOUNCED events
 // and auto-adds the lead email to the blocklist
 app.post('/webhook/reachinbox', (req, res) => {
+  // Optional secret validation — set WEBHOOK_SECRET in env to enable
+  const secret = process.env.WEBHOOK_SECRET
+  if (secret) {
+    const provided = req.headers['x-webhook-secret'] || req.headers['x-reachinbox-secret'] || ''
+    if (provided !== secret) {
+      console.warn('[webhook] Rejected: invalid secret')
+      return res.status(401).json({ status: 401, message: 'Unauthorized' })
+    }
+  }
+
   let body = {}
   try { body = JSON.parse(req.body.toString()) } catch (_) {}
 
   const event = body.event || body.type || ''
+  // Try multiple payload shapes ReachInbox may send
   const lead = body.lead || body.data?.lead || body.data || {}
-  const email = lead.email || body.email || ''
+  const email = (lead.email || body.email || '').toLowerCase().trim()
 
-  console.log(`[webhook] Received event: ${event}, email: ${email}`)
+  const autoBlockEvents = ['LEAD_NOT_INTERESTED', 'EMAIL_BOUNCED']
+  if (!autoBlockEvents.includes(event.toUpperCase())) {
+    return res.json({ status: 200, message: `Event ${event} received, no action taken` })
+  }
 
   if (!email) {
+    // Log full payload so we can diagnose unexpected formats
+    console.warn(`[webhook] ${event} received but no email found. Payload: ${JSON.stringify(body)}`)
     return res.status(200).json({ status: 200, message: 'No email in payload, ignored' })
   }
 
-  const autoBlockEvents = ['LEAD_NOT_INTERESTED', 'EMAIL_BOUNCED']
-  if (autoBlockEvents.includes(event.toUpperCase())) {
-    const added = blocklist.addEntries({ emails: [email] })
-    console.log(`[webhook] Auto-blocklisted ${email} (event: ${event}, added: ${added})`)
-    return res.json({ status: 200, message: `Blocklisted ${email}`, added })
-  }
-
-  res.json({ status: 200, message: `Event ${event} received, no action taken` })
+  const added = blocklist.addEntries({ emails: [email] })
+  console.log(`[webhook] Auto-blocklisted ${email} (event: ${event}, added: ${added})`)
+  res.json({ status: 200, message: `Blocklisted ${email}`, added })
 })
 
 // ── Generic proxy ─────────────────────────────────────────────────────────────
@@ -195,6 +206,34 @@ app.all('/api/v1/*', async (req, res) => {
       })
       const retryBuf = await retry.buffer()
       return res.send(retryBuf)
+    }
+
+    // Auto-subscribe webhooks for newly created campaigns
+    const isCampaignCreate = req.method === 'POST' && /^\/api\/v1\/campaign$/.test(normalizedPath)
+    if (isCampaignCreate && upstream.status >= 200 && upstream.status < 300) {
+      try {
+        const responseBuf = await upstream.buffer()
+        const responseJson = JSON.parse(responseBuf.toString())
+        const campaignId = responseJson?.data?.id || responseJson?.id
+        if (campaignId) {
+          const webhookBase = process.env.COOLIFY_URL || 'https://reachinbox.luxeillum.com'
+          const callbackUrl = `${webhookBase}/webhook/reachinbox`
+          for (const event of ['LEAD_NOT_INTERESTED', 'EMAIL_BOUNCED']) {
+            fetch(`${REACHINBOX_BASE}/api/v1/webhook/subscribe`, {
+              method: 'POST',
+              headers: { ...forwardHeaders, 'content-type': 'application/json' },
+              body: JSON.stringify({ campaignId, event, callbackUrl }),
+              agent: getUpstreamProxyAgent(),
+            }).then(r => console.log(`[webhook] Auto-subscribed ${event} for campaign ${campaignId}: ${r.status}`))
+              .catch(e => console.error(`[webhook] Auto-subscribe failed for campaign ${campaignId}: ${e.message}`))
+          }
+        }
+        res.status(upstream.status)
+        upstream.headers.forEach((val, key) => {
+          if (!['transfer-encoding', 'connection', 'content-encoding'].includes(key.toLowerCase())) res.set(key, val)
+        })
+        return res.send(responseBuf)
+      } catch (_) { /* fall through to normal response handling */ }
     }
 
     // Stream response back
