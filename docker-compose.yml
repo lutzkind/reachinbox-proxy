@@ -4,7 +4,26 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      - SERVICE_FQDN_REACHINBOX_PROXY=reachinbox.luxeillum.com
+      - SERVICE_FQDN_REACHINBOX_PROXY_3000=https://reachinbox.luxeillum.com
     volumes:
       - /data/coolify/applications/i2lc8rlmkfjb22qsqdli7dxs/data:/app/data
+    networks:
+      - coolify
     restart: unless-stopped
+    labels:
+      - traefik.enable=true
+      - traefik.http.middlewares.gzip.compress=true
+      - traefik.http.middlewares.redirect-to-https.redirectscheme.scheme=https
+      - traefik.http.routers.http-reachinbox.entryPoints=http
+      - traefik.http.routers.http-reachinbox.middlewares=redirect-to-https
+      - traefik.http.routers.http-reachinbox.rule=Host(`reachinbox.luxeillum.com`)
+      - traefik.http.routers.https-reachinbox.entryPoints=https
+      - traefik.http.routers.https-reachinbox.middlewares=gzip
+      - traefik.http.routers.https-reachinbox.rule=Host(`reachinbox.luxeillum.com`)
+      - traefik.http.routers.https-reachinbox.tls=true
+      - traefik.http.routers.https-reachinbox.tls.certresolver=letsencrypt
+      - traefik.http.services.reachinbox.loadbalancer.server.port=3000
+
+networks:
+  coolify:
+    external: true
