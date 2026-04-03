@@ -1,0 +1,10 @@
+services:
+  reachinbox-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - SERVICE_FQDN_REACHINBOX_PROXY=reachinbox.luxeillum.com
+    volumes:
+      - /data/coolify/applications/i2lc8rlmkfjb22qsqdli7dxs/data:/app/data
+    restart: unless-stopped
