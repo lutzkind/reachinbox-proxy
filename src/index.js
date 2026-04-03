@@ -2,6 +2,7 @@ require('dotenv').config()
 const express = require('express')
 const { getToken } = require('./auth')
 const { getUpstreamProxyAgent } = require('./proxy')
+const blocklist = require('./blocklist')
 
 const app = express()
 const PORT = process.env.PORT || 3000
@@ -21,7 +22,36 @@ app.use(express.raw({ type: '*/*', limit: '50mb' }))
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'reachinbox-proxy' }))
 
-// Proxy all /api/v1/* requests
+// ── Blocklist endpoints ──────────────────────────────────────────────────────
+
+// GET /api/v1/blocklist — return all blocked emails
+app.get('/api/v1/blocklist', (req, res) => {
+  const emails = blocklist.getAll()
+  res.json({ count: emails.length, emails })
+})
+
+// POST /api/v1/blocklist — add emails to blocklist
+// Body: { "emails": ["a@b.com", "c@d.com"] }  or  { "email": "a@b.com" }
+app.post('/api/v1/blocklist', (req, res) => {
+  let body = {}
+  try { body = JSON.parse(req.body.toString()) } catch (_) {}
+  const toAdd = body.emails || (body.email ? [body.email] : [])
+  if (!toAdd.length) {
+    return res.status(400).json({ error: 'Provide "emails" array or "email" string' })
+  }
+  const added = blocklist.addEmails(toAdd)
+  res.json({ added, total: blocklist.getAll().length })
+})
+
+// DELETE /api/v1/blocklist/:email — remove a single email
+app.delete('/api/v1/blocklist/:email', (req, res) => {
+  const removed = blocklist.removeEmail(req.params.email)
+  if (!removed) return res.status(404).json({ error: 'Email not in blocklist' })
+  res.json({ removed: req.params.email, total: blocklist.getAll().length })
+})
+
+// ── Generic proxy ────────────────────────────────────────────────────────────
+
 app.all('/api/v1/*', async (req, res) => {
   try {
     const token = await getToken()
@@ -56,9 +86,33 @@ app.all('/api/v1/*', async (req, res) => {
     let body = undefined
     if (!['GET', 'HEAD', 'DELETE'].includes(req.method) && req.body && req.body.length > 0) {
       body = req.body
-      if (!forwardHeaders['content-length']) {
-        forwardHeaders['content-length'] = req.body.length
+
+      // Intercept leads-add: strip blocked emails before forwarding
+      const isLeadsAdd = /\/api\/v1\/campaign\/\d+\/leads$/.test(normalizedPath)
+      if (isLeadsAdd) {
+        try {
+          const parsed = JSON.parse(req.body.toString())
+          if (Array.isArray(parsed.leads)) {
+            const before = parsed.leads.length
+            parsed.leads = parsed.leads.filter(l => !blocklist.isBlocked(l.email))
+            const dropped = before - parsed.leads.length
+            if (dropped > 0) {
+              console.log(`[blocklist] Dropped ${dropped} blocked lead(s) from leads-add`)
+            }
+            if (parsed.leads.length === 0) {
+              return res.json({
+                status: 'ok',
+                message: 'All leads were on the blocklist — none forwarded.',
+                blocked: before,
+              })
+            }
+            body = Buffer.from(JSON.stringify(parsed))
+          }
+        } catch (_) { /* not valid JSON, pass through as-is */ }
       }
+
+      // Always set content-length from actual body after any filtering
+      forwardHeaders['content-length'] = body.length
     }
 
     console.log(`[proxy] ${req.method} ${targetUrl}`)
@@ -124,6 +178,5 @@ app.use((req, res) => res.status(404).json({ status: 404, message: 'Not found. U
 app.listen(PORT, '0.0.0.0', () => {
   console.log(`ReachInbox proxy running on port ${PORT}`)
   console.log(`Proxying to: ${REACHINBOX_BASE}/api/v1/`)
-  // Validate token on startup
   getToken().then(() => console.log('[auth] Token ready')).catch(e => console.error('[auth] Token error:', e.message))
 })
