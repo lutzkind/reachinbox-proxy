@@ -144,8 +144,10 @@ app.all('/api/v1/*', async (req, res) => {
     if (!['GET', 'HEAD', 'DELETE'].includes(req.method) && req.body && req.body.length > 0) {
       body = req.body
 
-      // Intercept leads-add: strip blocked emails/domains before forwarding
+      // Intercept leads-add: strip blocked emails/domains before forwarding.
+      // Applies to both campaign leads and lead list imports.
       const isLeadsAdd = /\/api\/v1\/campaign\/\d+\/leads$/.test(normalizedPath)
+        || normalizedPath === '/api/v1/leads-list/add-leads'
       if (isLeadsAdd) {
         try {
           const parsed = JSON.parse(req.body.toString())
