@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>ReachInbox Blocklist</title>
+    <link rel="stylesheet" href="/dashboard/styles.css">
+  </head>
+  <body>
+    <div class="page-shell">
+      <header class="hero">
+        <div class="hero__copy">
+          <p class="eyebrow">ReachInbox Proxy</p>
+          <h1>Blocklist Dashboard</h1>
+          <p class="hero__lede">
+            Inspect blocked emails and domains, add new entries in bulk, and remove mistakes without editing files by hand.
+          </p>
+        </div>
+        <div class="hero__meta">
+          <div class="metric-card">
+            <span class="metric-label">Total Emails</span>
+            <strong id="metric-emails">0</strong>
+          </div>
+          <div class="metric-card">
+            <span class="metric-label">Total Domains</span>
+            <strong id="metric-domains">0</strong>
+          </div>
+        </div>
+      </header>
+
+      <main class="layout">
+        <section class="panel panel--form">
+          <div class="panel__header">
+            <div>
+              <p class="panel__eyebrow">Manual Changes</p>
+              <h2>Add entries</h2>
+            </div>
+            <p class="panel__hint">Paste one item per line or comma-separated.</p>
+          </div>
+
+          <form id="add-form" class="stack">
+            <label class="field">
+              <span>Emails</span>
+              <textarea id="input-emails" rows="5" placeholder="lead@example.com&#10;second@example.com"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Domains</span>
+              <textarea id="input-domains" rows="4" placeholder="example.com&#10;anotherdomain.com"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Keywords</span>
+              <textarea id="input-keywords" rows="3" placeholder="unsubscribe"></textarea>
+            </label>
+
+            <label class="field">
+              <span>Reply Keywords</span>
+              <textarea id="input-repliesKeywords" rows="3" placeholder="not interested"></textarea>
+            </label>
+
+            <div class="actions">
+              <button type="submit" class="button button--primary">Add To Blocklist</button>
+              <button type="button" id="refresh-button" class="button button--ghost">Refresh</button>
+            </div>
+          </form>
+        </section>
+
+        <section class="panel panel--table">
+          <div class="panel__header panel__header--split">
+            <div>
+              <p class="panel__eyebrow">Current State</p>
+              <h2>Entries</h2>
+            </div>
+            <label class="search">
+              <span>Search</span>
+              <input id="search-input" type="search" placeholder="Find email, domain, or keyword">
+            </label>
+          </div>
+
+          <div id="status-banner" class="status-banner" hidden></div>
+
+          <div class="tabs" id="tabs">
+            <button class="tab is-active" data-table="emails" type="button">Emails</button>
+            <button class="tab" data-table="domains" type="button">Domains</button>
+            <button class="tab" data-table="keywords" type="button">Keywords</button>
+            <button class="tab" data-table="repliesKeywords" type="button">Reply Keywords</button>
+          </div>
+
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Value</th>
+                  <th class="table__action">Action</th>
+                </tr>
+              </thead>
+              <tbody id="entries-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <template id="empty-state-template">
+      <tr>
+        <td colspan="2" class="empty-state">No entries in this section.</td>
+      </tr>
+    </template>
+
+    <script src="/dashboard/app.js" defer></script>
+  </body>
+</html>

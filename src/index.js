@@ -1,5 +1,7 @@
 require('dotenv').config()
 const express = require('express')
+const crypto = require('crypto')
+const path = require('path')
 const { getToken } = require('./auth')
 const { getUpstreamProxyAgent } = require('./proxy')
 const blocklist = require('./blocklist')
@@ -7,6 +9,9 @@ const blocklist = require('./blocklist')
 const app = express()
 const PORT = process.env.PORT || 3000
 const REACHINBOX_BASE = 'https://app.reachinbox.ai'
+const DASHBOARD_USERNAME = process.env.DASHBOARD_USERNAME || ''
+const DASHBOARD_PASSWORD = process.env.DASHBOARD_PASSWORD || ''
+const DASHBOARD_ENABLED = Boolean(DASHBOARD_USERNAME && DASHBOARD_PASSWORD)
 
 function normalizeReachInboxPath(pathname) {
   if (pathname === '/api/v1/campaigns/all') return '/api/v1/campaign/list'
@@ -16,11 +21,106 @@ function normalizeReachInboxPath(pathname) {
   return pathname
 }
 
+function parseJsonBody(req) {
+  try {
+    return JSON.parse(req.body?.toString?.() || '{}')
+  } catch (_) {
+    return {}
+  }
+}
+
+function secureEqual(left, right) {
+  const leftBuffer = Buffer.from(String(left))
+  const rightBuffer = Buffer.from(String(right))
+  if (leftBuffer.length !== rightBuffer.length) return false
+  return crypto.timingSafeEqual(leftBuffer, rightBuffer)
+}
+
+function requireDashboardAuth(req, res, next) {
+  if (!DASHBOARD_ENABLED) {
+    return res.status(404).send('Dashboard is not enabled.')
+  }
+
+  const header = req.headers.authorization || ''
+  if (!header.startsWith('Basic ')) {
+    res.set('WWW-Authenticate', 'Basic realm="ReachInbox Dashboard"')
+    return res.status(401).send('Authentication required.')
+  }
+
+  let decoded = ''
+  try {
+    decoded = Buffer.from(header.slice(6), 'base64').toString('utf8')
+  } catch (_) {
+    res.set('WWW-Authenticate', 'Basic realm="ReachInbox Dashboard"')
+    return res.status(401).send('Invalid authorization header.')
+  }
+
+  const separatorIndex = decoded.indexOf(':')
+  const username = separatorIndex >= 0 ? decoded.slice(0, separatorIndex) : ''
+  const password = separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : ''
+
+  if (!secureEqual(username, DASHBOARD_USERNAME) || !secureEqual(password, DASHBOARD_PASSWORD)) {
+    res.set('WWW-Authenticate', 'Basic realm="ReachInbox Dashboard"')
+    return res.status(401).send('Invalid credentials.')
+  }
+
+  next()
+}
+
 // Parse raw body for proxying (preserve exact payload)
 app.use(express.raw({ type: '*/*', limit: '50mb' }))
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok', service: 'reachinbox-proxy' }))
+
+// ── Dashboard UI ──────────────────────────────────────────────────────────────
+
+app.get('/dashboard', requireDashboardAuth, (req, res) => {
+  res.sendFile(path.join(__dirname, 'dashboard.html'))
+})
+
+app.get('/dashboard/styles.css', requireDashboardAuth, (req, res) => {
+  res.type('text/css').sendFile(path.join(__dirname, 'dashboard.css'))
+})
+
+app.get('/dashboard/app.js', requireDashboardAuth, (req, res) => {
+  res.type('application/javascript').sendFile(path.join(__dirname, 'dashboard.js'))
+})
+
+app.get('/dashboard/api/blocklist', requireDashboardAuth, (req, res) => {
+  res.json({ status: 200, data: blocklist.getAll() })
+})
+
+app.post('/dashboard/api/blocklist/add', requireDashboardAuth, (req, res) => {
+  const body = parseJsonBody(req)
+  const added = blocklist.addEntries({
+    emails: Array.isArray(body.emails) ? body.emails : [],
+    domains: Array.isArray(body.domains) ? body.domains : [],
+    keywords: Array.isArray(body.keywords) ? body.keywords : [],
+    repliesKeywords: Array.isArray(body.repliesKeywords) ? body.repliesKeywords : [],
+  })
+
+  res.json({
+    status: 200,
+    message: 'Blocklist updated successfully',
+    added,
+    data: blocklist.getAll(),
+  })
+})
+
+app.delete('/dashboard/api/blocklist/:table', requireDashboardAuth, (req, res) => {
+  const { table } = req.params
+  const body = parseJsonBody(req)
+  const ids = Array.isArray(body.ids) ? body.ids : []
+  const removed = blocklist.deleteEntries(table, ids)
+
+  res.json({
+    status: 200,
+    message: `Removed ${removed} entries from ${table}`,
+    removed,
+    data: blocklist.getAll(),
+  })
+})
 
 // ── Blocklist endpoints (mirrors official api.reachinbox.ai shape) ────────────
 
@@ -47,8 +147,7 @@ app.get('/api/v1/blocklist/:table?', (req, res) => {
 
 // POST /api/v1/blocklist/add — add entries
 app.post('/api/v1/blocklist/add', (req, res) => {
-  let body = {}
-  try { body = JSON.parse(req.body.toString()) } catch (_) {}
+  const body = parseJsonBody(req)
   const { emails = [], domains = [], keywords = [], repliesKeywords = [] } = body
   if (!emails.length && !domains.length && !keywords.length && !repliesKeywords.length) {
     return res.status(400).json({ status: 400, message: 'Provide at least one of: emails, domains, keywords, repliesKeywords' })
@@ -59,8 +158,7 @@ app.post('/api/v1/blocklist/add', (req, res) => {
 
 // DELETE /api/v1/blocklist/:table — remove entries by value
 app.delete('/api/v1/blocklist/:table', (req, res) => {
-  let body = {}
-  try { body = JSON.parse(req.body.toString()) } catch (_) {}
+  const body = parseJsonBody(req)
   const { ids = [] } = body
   const { table } = req.params
   if (!ids.length) return res.status(400).json({ status: 400, message: 'Provide ids array' })
@@ -83,8 +181,7 @@ app.post('/webhook/reachinbox', (req, res) => {
     }
   }
 
-  let body = {}
-  try { body = JSON.parse(req.body.toString()) } catch (_) {}
+  const body = parseJsonBody(req)
 
   const event = body.event || body.type || ''
   // Try multiple payload shapes ReachInbox may send
