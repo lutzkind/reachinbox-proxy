@@ -168,8 +168,7 @@ app.delete('/api/v1/blocklist/:table', (req, res) => {
 
 // ── ReachInbox webhook receiver ───────────────────────────────────────────────
 
-// POST /webhook/reachinbox — receives LEAD_NOT_INTERESTED and EMAIL_BOUNCED events
-// and auto-adds the lead email to the blocklist
+// POST /webhook/reachinbox — keeps the local blocklist in sync with lead intent
 app.post('/webhook/reachinbox', (req, res) => {
   // Optional secret validation — set WEBHOOK_SECRET in env to enable
   const secret = process.env.WEBHOOK_SECRET
@@ -186,10 +185,20 @@ app.post('/webhook/reachinbox', (req, res) => {
   const event = body.event || body.type || ''
   // Try multiple payload shapes ReachInbox may send
   const lead = body.lead || body.data?.lead || body.data || {}
-  const email = (lead.email || body.email || '').toLowerCase().trim()
+  const email = (
+    lead.email ||
+    body.email ||
+    body.lead_email ||
+    body.leadEmail ||
+    body.data?.email ||
+    body.data?.lead_email ||
+    ''
+  ).toLowerCase().trim()
 
-  const autoBlockEvents = ['LEAD_NOT_INTERESTED', 'EMAIL_BOUNCED']
-  if (!autoBlockEvents.includes(event.toUpperCase())) {
+  const normalizedEvent = event.toUpperCase()
+  const blockEvents = ['LEAD_NOT_INTERESTED', 'EMAIL_BOUNCED']
+  const unblockEvents = ['LEAD_INTERESTED']
+  if (!blockEvents.includes(normalizedEvent) && !unblockEvents.includes(normalizedEvent)) {
     return res.json({ status: 200, message: `Event ${event} received, no action taken` })
   }
 
@@ -199,9 +208,15 @@ app.post('/webhook/reachinbox', (req, res) => {
     return res.status(200).json({ status: 200, message: 'No email in payload, ignored' })
   }
 
-  const added = blocklist.addEntries({ emails: [email] })
-  console.log(`[webhook] Auto-blocklisted ${email} (event: ${event}, added: ${added})`)
-  res.json({ status: 200, message: `Blocklisted ${email}`, added })
+  if (blockEvents.includes(normalizedEvent)) {
+    const added = blocklist.addEntries({ emails: [email] })
+    console.log(`[webhook] Auto-blocklisted ${email} (event: ${event}, added: ${added})`)
+    return res.json({ status: 200, message: `Blocklisted ${email}`, added })
+  }
+
+  const removed = blocklist.deleteEntries('emails', [email])
+  console.log(`[webhook] Auto-unblocklisted ${email} (event: ${event}, removed: ${removed})`)
+  return res.json({ status: 200, message: `Removed ${email} from blocklist`, removed })
 })
 
 // ── Generic proxy ─────────────────────────────────────────────────────────────
