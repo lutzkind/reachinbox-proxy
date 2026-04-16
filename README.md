@@ -252,16 +252,14 @@ Subscribe to webhook events.
 
 **Available events:** `ALL_EVENTS`, `EMAIL_SENT`, `EMAIL_OPENED`, `EMAIL_CLICKED`, `REPLY_RECEIVED`, `EMAIL_BOUNCED`, `LEAD_INTERESTED`, `LEAD_NOT_INTERESTED`, `CAMPAIGN_COMPLETED`
 
-#### `POST /api/v1/webhook/unsubscribe`
-Remove a webhook subscription.
+#### `DELETE /api/v1/webhook/delete/:id`
+Remove a webhook subscription by subscription ID.
 
 ```json
-{
-  "campaignId": 12345,
-  "event": "REPLY_RECEIVED",
-  "callbackUrl": "https://your-app.com/webhook"
-}
+{}
 ```
+
+Get the `id` from `GET /api/v1/webhook/list-all`.
 
 ---
 
